@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador de un pipeline de datos en AWS</title>
+<style>
+:root{
+  --bg:#f4f3f0; --surface:#fcfcfb; --surface-2:#f0efeb; --border:#e2e0da; --border-strong:#cfccc4;
+  --text:#0b0b0b; --text-2:#52514e; --muted:#85837d;
+  --accent:#1c5cab; --accent-h:#184f95; --accent-soft:#e6eefa;
+  --c:#2a78d6; --n:#eb6834; --b:#1baf7a;
+  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --radius:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.01em}
+button{font:inherit;cursor:pointer}
+input,select{font:inherit;color:inherit}
+.app-head{background:#10233f;color:#f3f5f8;padding:18px 28px 0}
+.app-head .row{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.app-head h1{font-size:21px}
+.app-head .sub{color:#b7c3d6;font-size:13px;margin-top:3px}
+.app-head .meta{color:#b7c3d6;font-size:12.5px;text-align:right}
+.tabs{display:flex;gap:2px;margin-top:16px;overflow-x:auto}
+.tab{background:transparent;border:0;color:#b7c3d6;padding:10px 16px;border-radius:8px 8px 0 0;font-weight:550;white-space:nowrap}
+.tab:hover{color:#fff}
+.tab.on{background:var(--bg);color:var(--text)}
+.tab .num{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.12);font-size:11.5px;margin-right:7px}
+.tab.on .num{background:var(--accent);color:#fff}
+main{padding:22px 28px 40px;max-width:1500px;margin:0 auto}
+.panel{display:none}.panel.on{display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+.card h2{font-size:15.5px;margin-bottom:4px}
+.card .desc{color:var(--text-2);font-size:13px;margin:0 0 12px}
+.grid-model{display:grid;grid-template-columns:380px 1fr;gap:18px;align-items:start}
+@media(max-width:1050px){.grid-model,.grid-exec{grid-template-columns:1fr!important}}
+.stack{display:flex;flex-direction:column;gap:18px}
+fieldset{border:0;margin:0 0 14px;padding:0}
+legend{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:650;margin-bottom:8px;padding:0}
+.f{display:grid;grid-template-columns:1fr 150px;align-items:center;gap:8px;margin-bottom:7px}
+.f label{color:var(--text-2);font-size:13px}
+.f input,.f select,.tclass input{width:100%;padding:6px 8px;border:1px solid var(--border-strong);border-radius:7px;background:#fff}
+.f input:focus,.f select:focus,.tclass input:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+.tclass{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+.tclass th:first-child,.tclass td:first-child{width:76px;white-space:nowrap}
+.tclass th{font-weight:550;color:var(--muted);text-align:left;padding:0 3px 5px;font-size:11.5px}
+.tclass td{padding:3px}
+.tclass input{padding:5px 4px;text-align:right;-moz-appearance:textfield;appearance:textfield}
+.tclass input::-webkit-inner-spin-button,.tclass input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.btn{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:10px 16px;font-weight:600}
+.btn:hover{background:var(--accent-h)}
+.btn.sec{background:#fff;color:var(--text);border:1px solid var(--border-strong)}
+.btn.sec:hover{background:var(--surface-2)}
+.btn.sm{padding:6px 11px;font-size:13px}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+.preset{width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:8px;background:#fff;margin-bottom:6px}
+.preset-desc{font-size:12.5px;color:var(--text-2);min-height:34px;margin-bottom:14px}
+.hint{font-size:12px;color:var(--muted)}
+.status{font-size:12.5px;color:var(--text-2);margin-top:10px}
+.status b{color:var(--good)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--mono);font-size:11.5px;padding:3px 8px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);display:inline-flex;align-items:center;gap:5px}
+.chip i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:900px){.two{grid-template-columns:1fr}}
+.info-list{margin:0;padding-left:18px;color:var(--text-2);font-size:13px}
+.info-list li{margin-bottom:5px}
+.info-list b{color:var(--text)}
+/* KPIs */
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
+@media(max-width:1200px){.kpis{grid-template-columns:repeat(3,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+.kpi .l{font-size:12px;color:var(--text-2)}
+.kpi .v{font-size:26px;font-weight:650;letter-spacing:-.02em;margin-top:2px;font-variant-numeric:tabular-nums}
+.kpi .v small{font-size:14px;font-weight:500;color:var(--text-2);margin-left:2px}
+.kpi .s{font-size:11.5px;color:var(--muted);margin-top:2px}
+/* tablas */
+.tbl-wrap{overflow:auto;border:1px solid var(--border);border-radius:8px}
+table.data{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+table.data th{background:var(--surface-2);text-align:left;font-weight:600;color:var(--text-2);font-size:12px;padding:8px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;white-space:nowrap}
+table.data td{padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+table.data td.r,table.data th.r{text-align:right}
+table.data tr:last-child td{border-bottom:0}
+table.data tr.hl td{background:var(--accent-soft)}
+.st{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:550}
+.st.ok{color:#087a08}.st.bad{color:var(--crit)}.st.warn{color:#9a6b00}
+.ci{color:var(--muted);font-size:11.5px}
+/* gráficos */
+.chart{width:100%;position:relative}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.ax text{fill:var(--text-2);font-size:11px}
+.ax line,.ax path{stroke:var(--border-strong)}
+.grid line{stroke:#ecebe6}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--text-2);margin:2px 0 8px}
+.legend span{display:inline-flex;align-items:center}
+#tip{position:fixed;pointer-events:none;background:#16181d;color:#f3f3f1;font-size:12px;padding:7px 10px;border-radius:7px;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:50;display:none;max-width:280px;line-height:1.4}
+#tip b{color:#fff}
+/* ejecución */
+.grid-exec{display:grid;grid-template-columns:1fr 340px;gap:18px;align-items:start}
+.player{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.clock{font-family:var(--mono);font-size:22px;font-weight:600;min-width:74px}
+#slider{flex:1;min-width:200px;accent-color:var(--accent)}
+.state h3{font-size:13px;color:var(--text-2);font-weight:600;margin:14px 0 6px}
+.state h3:first-child{margin-top:0}
+.fresh-row{display:grid;grid-template-columns:118px 1fr 56px;gap:8px;align-items:center;font-size:12px;margin-bottom:4px}
+.fresh-row .nm{font-family:var(--mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-bg{height:8px;background:var(--surface-2);border-radius:4px;position:relative;overflow:hidden}
+.bar-fg{height:100%;border-radius:4px}
+.fresh-row .val{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
+.empty{color:var(--muted);font-size:12.5px}
+.note{background:#fff8e6;border:1px solid #f1dfae;border-radius:8px;padding:10px 12px;font-size:12.5px;color:#5a4a1d}
+.progress{height:4px;background:var(--surface-2);border-radius:2px;overflow:hidden;margin-top:10px;display:none}
+.progress div{height:100%;background:var(--accent);width:0}
+footer{color:var(--muted);font-size:12px;text-align:center;padding:10px 0 30px}
+</style>
+</head>
+<body>
+<header class="app-head">
+  <div class="row">
+    <div>
+      <h1>Simulador de un pipeline de datos en AWS</h1>
+      <div class="sub">Cargas incrementales BD origen → S3 → AWS Glue → Redshift/Athena · Simulación de eventos discretos</div>
+    </div>
+    <div class="meta">Modelos y Simulación · UNMSM<br>Alumno: Kepler</div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab on" data-p="modelo"><span class="num">1</span>Modelo del proceso</button>
+    <button class="tab" data-p="ejecucion"><span class="num">2</span>Ejecución</button>
+    <button class="tab" data-p="resultados"><span class="num">3</span>Resultados</button>
+    <button class="tab" data-p="escenarios"><span class="num">4</span>Comparación de escenarios</button>
+  </nav>
+</header>
+
+<main>
+<!-- ============ 1. MODELO ============ -->
+<section class="panel on" id="p-modelo">
+  <div class="grid-model">
+    <div class="card">
+      <h2>Parámetros de entrada</h2>
+      <p class="desc">Elige un escenario o ajusta los valores y pulsa «Ejecutar simulación».</p>
+      <select class="preset" id="preset"></select>
+      <div class="preset-desc" id="presetDesc"></div>
+
+      <fieldset>
+        <legend>Tablas y horarios (minutos)</legend>
+        <table class="tclass">
+          <thead><tr><th>Clase</th><th>Nº tablas</th><th>Cada</th><th>Desf.</th><th>SLA</th><th>Proc.</th></tr></thead>
+          <tbody id="clasesBody"></tbody>
+        </table>
+        <div class="hint" style="margin-top:6px">Cada = frecuencia del disparo · SLA = tiempo máximo aceptable desde el disparo hasta el dato cargado · Proc. = procesamiento medio del job.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Capacidad y cola</legend>
+        <div class="f"><label for="concurrencia">Jobs de Glue simultáneos</label><input type="number" id="concurrencia" min="1" max="20" step="1"></div>
+        <div class="f"><label for="politica">Disciplina de la cola</label>
+          <select id="politica"><option value="FIFO">FIFO</option><option value="PRIORIDAD">Prioridad a críticas</option></select></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Tiempos y fallos</legend>
+        <div class="f"><label for="arrMin">Arranque de Glue mín. (min)</label><input type="number" id="arrMin" min="0" step="0.1"></div>
+        <div class="f"><label for="arrMax">Arranque de Glue máx. (min)</label><input type="number" id="arrMax" min="0" step="0.1"></div>
+        <div class="f"><label for="cv">Variabilidad del proceso (CV)</label><input type="number" id="cv" min="0.05" max="2" step="0.05"></div>
+        <div class="f"><label for="jitterMax">Retraso máx. del disparo (min)</label><input type="number" id="jitterMax" min="0" step="0.5"></div>
+        <div class="f"><label for="pFallo">Prob. de fallo por intento (%)</label><input type="number" id="pFallo" min="0" max="90" step="1"></div>
+        <div class="f"><label for="maxReintentos">Reintentos máximos</label><input type="number" id="maxReintentos" min="0" max="10" step="1"></div>
+        <div class="f"><label for="backoff">Espera antes de reintentar (min)</label><input type="number" id="backoff" min="0" step="0.5"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Costo (AWS Glue)</legend>
+        <div class="f"><label for="dpu">DPU por job</label><input type="number" id="dpu" min="0.0625" step="1"></div>
+        <div class="f"><label for="precio">USD por DPU-hora</label><input type="number" id="precio" min="0" step="0.01"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Experimento</legend>
+        <div class="f"><label for="horizonte">Horizonte simulado (h)</label><input type="number" id="horizonte" min="1" max="168" step="1"></div>
+        <div class="f"><label for="semilla">Semilla</label><input type="number" id="semilla" step="1"></div>
+        <div class="f"><label for="replicas">Réplicas (para IC 95 %)</label><input type="number" id="replicas" min="2" max="200" step="1"></div>
+      </fieldset>
+
+      <div class="btn-row">
+        <button class="btn" id="btnRun">▶ Ejecutar simulación</button>
+        <button class="btn sec" id="btnReset">Restablecer</button>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <h2>Mapa del proceso</h2>
+        <p class="desc">Cada tabla tiene su propio horario. Todas compiten por la misma capacidad de AWS Glue.</p>
+        <div id="mapa"></div>
+      </div>
+      <div class="two">
+        <div class="card">
+          <h2>Distribuciones de probabilidad</h2>
+          <ul class="info-list">
+            <li><b>Disparo:</b> horario fijo (cada 60/120/240 min) + retraso <b>Uniforme(0, r)</b> del orquestador.</li>
+            <li><b>Arranque del job:</b> <b>Uniforme(a, b)</b>, el tiempo que Glue tarda en levantar el entorno.</li>
+            <li><b>Procesamiento:</b> <b>Lognormal</b> con media por clase y CV fijo: la mayoría dura poco y unos pocos tardan bastante más.</li>
+            <li><b>Fallo:</b> <b>Bernoulli(p)</b> por intento. Si falla, el intento se corta en un punto Uniforme(20 %–100 %) de su duración.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h2>Reglas y supuestos</h2>
+          <ul class="info-list">
+            <li>Si el disparo anterior de una tabla aún no termina, el nuevo se <b>omite</b> (evita cargas solapadas).</li>
+            <li>La extracción toma la "foto" del dato al iniciar el intento exitoso; el dato queda visible al terminar.</li>
+            <li>Frescura = antigüedad del dato visible. Objetivo por tabla = frecuencia + SLA.</li>
+            <li>Costo = DPU × horas × precio, con un mínimo facturable de 1 min por intento (Glue 2.0+).</li>
+            <li>Al inicio (00:00) todas las tablas están recién cargadas.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Tablas del modelo</h2>
+        <p class="desc">Nombres ilustrativos de un sistema transaccional (ventas y operaciones).</p>
+        <div class="chips" id="chipsTablas"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 2. EJECUCIÓN ============ -->
+<section class="panel" id="p-ejecucion">
+  <div class="grid-exec">
+    <div class="card">
+      <div class="player">
+        <button class="btn sm" id="btnPlay">▶ Reproducir</button>
+        <span class="clock" id="clock">00:00</span>
+        <input type="range" id="slider" min="0" max="1440" step="1" value="0">
+        <label class="hint">Velocidad
+          <select id="speed"><option value="4">×1</option><option value="12" selected>×3</option><option value="40">×10</option></select></label>
+        <label class="hint">Ventana
+          <select id="ventana"><option value="1440">24 h</option><option value="360" selected>6 h</option><option value="120">2 h</option></select></label>
+      </div>
+      <div class="legend" id="legGantt"></div>
+      <h3 style="font-size:13px;color:var(--text-2);font-weight:600;margin:4px 0">Ocupación de los slots de AWS Glue (diagrama de Gantt)</h3>
+      <div class="chart" id="gantt"></div>
+      <h3 style="font-size:13px;color:var(--text-2);font-weight:600;margin:14px 0 4px">Jobs esperando en cola</h3>
+      <div class="chart" id="colaMini"></div>
+      <p class="hint" style="margin-top:8px">Pasa el cursor sobre una barra para ver el detalle del job. Haz clic en el Gantt para mover el reloj.</p>
+    </div>
+    <div class="card state" id="estado"></div>
+  </div>
+</section>
+
+<!-- ============ 3. RESULTADOS ============ -->
+<section class="panel" id="p-resultados">
+  <div class="kpis" id="kpis"></div>
+  <div class="card" style="margin-bottom:18px">
+    <h2>Resultados por clase de tabla</h2>
+    <p class="desc" id="resDesc"></p>
+    <div class="tbl-wrap" id="tblClases"></div>
+  </div>
+  <div class="two" style="margin-bottom:18px">
+    <div class="card">
+      <h2>Espera media en cola según la hora del disparo</h2>
+      <p class="desc">Revela en qué horas coinciden los horarios y se forma el cuello de botella.</p>
+      <div class="chart" id="chEsperaHora"></div>
+    </div>
+    <div class="card">
+      <h2>Longitud de la cola a lo largo del día</h2>
+      <p class="desc">Número de jobs esperando un slot libre de Glue.</p>
+      <div class="chart" id="chCola"></div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:18px">
+    <h2>Frescura del dato de las tablas críticas</h2>
+    <p class="desc">Antigüedad del dato visible en Redshift/Athena (min). Cae a casi cero cada vez que termina una carga. La línea punteada es el objetivo (frecuencia + SLA).</p>
+    <div class="legend" id="legFresh"></div>
+    <div class="chart" id="chFresh"></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div><h2>Registro de corridas</h2><p class="desc" style="margin:0">Cada fila es un disparo de carga de una tabla.</p></div>
+      <button class="btn sec sm" id="btnCSV">⬇ Descargar CSV</button>
+    </div>
+    <div class="tbl-wrap" style="max-height:380px;margin-top:12px" id="tblCorridas"></div>
+  </div>
+</section>
+
+<!-- ============ 4. ESCENARIOS ============ -->
+<section class="panel" id="p-escenarios">
+  <div class="card" style="margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+      <div style="max-width:820px">
+        <h2>Comparación de escenarios «¿qué pasaría si…?»</h2>
+        <p class="desc">Cada escenario modifica el caso base y se ejecuta <b id="nRep">30</b> veces con semillas distintas (desde la semilla <b id="sRep">42</b>). Se informa la media y el intervalo de confianza del 95 % (t de Student). Los demás parámetros toman los valores del formulario.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btnComp">▶ Comparar escenarios</button>
+        <button class="btn sec sm" id="btnCSVComp" disabled>⬇ CSV</button>
+      </div>
+    </div>
+    <div class="progress" id="prog"><div></div></div>
+  </div>
+  <div id="compOut"><div class="card empty">Pulsa «Comparar escenarios» para ejecutar las réplicas.</div></div>
+</section>
+</main>
+<footer>Simulación de eventos discretos implementada en JavaScript. Funciona sin servidor: todo se calcula en el navegador.</footer>
+<div id="tip"></div>
+
+<script>
+// ================= MOTOR DE SIMULACIÓN DE EVENTOS DISCRETOS =================
+// Pipeline de datos en AWS: BD origen -> extracción -> S3 -> Glue -> Redshift/Athena
+// Unidades de tiempo: minutos.
+
+const TABLAS_DEF = {
+  C: ['pedidos', 'pagos', 'stock_inventario', 'reservas', 'transferencias', 'alertas_fraude'],
+  N: ['clientes', 'productos', 'facturas', 'envios', 'devoluciones', 'proveedores',
+      'cotizaciones', 'ordenes_compra', 'tickets_soporte', 'promociones', 'tarifas', 'contratos'],
+  B: ['empleados', 'sucursales', 'categorias', 'monedas', 'regiones', 'calendario']
+};
+
+function parametrosBase() {
+  return {
+    clases: [
+      { id: 'C', nombre: 'Crítica', n: 3, periodo: 60, desfase: 0, sla: 15, procMedia: 3 },
+      { id: 'N', nombre: 'Normal', n: 6, periodo: 120, desfase: 0, sla: 30, procMedia: 4 },
+      { id: 'B', nombre: 'Baja', n: 3, periodo: 240, desfase: 0, sla: 60, procMedia: 5 }
+    ],
+    concurrencia: 3,      // jobs de Glue simultáneos (slots)
+    cv: 0.4,              // coef. de variación del procesamiento (lognormal)
+    arrMin: 0.5,          // arranque del job (min) ~ Uniforme(arrMin, arrMax)
+    arrMax: 1.5,
+    jitterMax: 2,         // retraso aleatorio del disparo ~ Uniforme(0, jitterMax)
+    pFallo: 0.05,         // probabilidad de fallo por intento
+    maxReintentos: 2,
+    backoff: 1,           // espera antes de reintentar (min)
+    politica: 'FIFO',     // 'FIFO' | 'PRIORIDAD'
+    horizonte: 24,        // horas simuladas
+    dpu: 2,               // DPUs por job (mínimo de Spark)
+    precio: 0.44,         // USD por DPU-hora
+    semilla: 42,
+    replicas: 30
+  };
+}
+
+// ---------- Generador pseudoaleatorio con semilla (mulberry32) ----------
+function crearRNG(semilla) {
+  let a = semilla >>> 0;
+  const next = () => {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  let spare = null;
+  const normal = () => {
+    if (spare !== null) { const s = spare; spare = null; return s; }
+    let u = 0, v = 0;
+    while (u === 0) u = next();
+    v = next();
+    const r = Math.sqrt(-2 * Math.log(u));
+    spare = r * Math.sin(2 * Math.PI * v);
+    return r * Math.cos(2 * Math.PI * v);
+  };
+  return {
+    random: next,
+    uniform: (a1, b1) => a1 + (b1 - a1) * next(),
+    // lognormal parametrizada por media y coeficiente de variación
+    lognormal: (media, cv) => {
+      const s2 = Math.log(1 + cv * cv);
+      const mu = Math.log(media) - s2 / 2;
+      return Math.exp(mu + Math.sqrt(s2) * normal());
+    }
+  };
+}
+
+// ---------- Cola de eventos (min-heap por tiempo y secuencia) ----------
+class Agenda {
+  constructor() { this.h = []; this.seq = 0; }
+  push(t, tipo, datos) { this.h.push({ t, s: this.seq++, tipo, datos }); this._up(this.h.length - 1); }
+  pop() {
+    const h = this.h, top = h[0], last = h.pop();
+    if (h.length) { h[0] = last; this._down(0); }
+    return top;
+  }
+  get size() { return this.h.length; }
+  _less(i, j) { const a = this.h[i], b = this.h[j]; return a.t < b.t || (a.t === b.t && a.s < b.s); }
+  _up(i) { while (i > 0) { const p = (i - 1) >> 1; if (this._less(i, p)) { [this.h[i], this.h[p]] = [this.h[p], this.h[i]]; i = p; } else break; } }
+  _down(i) {
+    const n = this.h.length;
+    for (;;) {
+      let m = i; const l = 2 * i + 1, r = l + 1;
+      if (l < n && this._less(l, m)) m = l;
+      if (r < n && this._less(r, m)) m = r;
+      if (m === i) break;
+      [this.h[i], this.h[m]] = [this.h[m], this.h[i]]; i = m;
+    }
+  }
+}
+
+const PRIORIDAD_CLASE = { C: 0, N: 1, B: 2 };
+
+// ---------- Simulación de una réplica ----------
+function simular(P, semilla) {
+  const rng = crearRNG(semilla === undefined ? P.semilla : semilla);
+  const T = P.horizonte * 60;
+  const agenda = new Agenda();
+
+  // Construcción de tablas
+  const tablas = [];
+  P.clases.forEach(cl => {
+    for (let i = 0; i < cl.n; i++) {
+      const base = TABLAS_DEF[cl.id][i % TABLAS_DEF[cl.id].length];
+      const nombre = i < TABLAS_DEF[cl.id].length ? base : base + '_' + (Math.floor(i / TABLAS_DEF[cl.id].length) + 1);
+      tablas.push({ id: tablas.length, nombre, clase: cl.id, cl, activa: null, snapshot: 0, segmentos: [] });
+    }
+  });
+
+  // Programación de disparos (EventBridge / Step Functions)
+  tablas.forEach(tb => {
+    for (let t0 = tb.cl.desfase; t0 < T; t0 += tb.cl.periodo) {
+      agenda.push(t0 + rng.uniform(0, P.jitterMax), 'DISPARO', { tb, programado: t0 });
+    }
+  });
+
+  const cola = [];
+  const slots = new Array(P.concurrencia).fill(null);
+  const corridas = [], intentos = [];
+  const serieCola = [{ t: 0, q: 0 }], serieOcupados = [{ t: 0, b: 0 }];
+  let ocupados = 0;
+
+  const registrarCola = t => serieCola.push({ t, q: cola.length });
+  const registrarOcupados = t => serieOcupados.push({ t, b: ocupados });
+
+  function encolar(corr, t) {
+    corr.tEncolado = t;
+    corr.colaInt.push({ desde: t, hasta: null });
+    cola.push(corr);
+    registrarCola(t);
+  }
+
+  function siguienteDeCola() {
+    if (!cola.length) return null;
+    let idx = 0;
+    if (P.politica === 'PRIORIDAD') {
+      for (let i = 1; i < cola.length; i++) {
+        const a = cola[i], b = cola[idx];
+        const pa = PRIORIDAD_CLASE[a.clase], pb = PRIORIDAD_CLASE[b.clase];
+        if (pa < pb || (pa === pb && a.tEncolado < b.tEncolado)) idx = i;
+      }
+    }
+    return cola.splice(idx, 1)[0];
+  }
+
+  function intentarIniciar(t) {
+    for (let s = 0; s < slots.length; s++) {
+      if (slots[s] !== null || !cola.length) continue;
+      const corr = siguienteDeCola();
+      registrarCola(t);
+      corr.colaInt[corr.colaInt.length - 1].hasta = t;
+      if (corr.inicio === null) corr.inicio = t;
+      corr.esperaTotal += t - corr.tEncolado;
+      const arranque = rng.uniform(P.arrMin, P.arrMax);
+      const proc = rng.lognormal(corr.tb.cl.procMedia, P.cv);
+      let dur = arranque + proc;
+      const falla = rng.random() < P.pFallo;
+      if (falla) dur = dur * rng.uniform(0.2, 1.0);
+      const intento = { slot: s, ini: t, fin: t + dur, tabla: corr.tb.nombre, clase: corr.clase, ok: !falla, n: corr.intentos + 1, corrida: corr.id };
+      corr.intentos++;
+      corr.costo += Math.max(dur, 1) / 60 * P.dpu * P.precio;
+      intentos.push(intento);
+      slots[s] = corr;
+      ocupados++; registrarOcupados(t);
+      agenda.push(t + dur, 'FIN', { corr, s, intento });
+    }
+  }
+
+  function cerrarSegmento(tb, hasta) {
+    // Antigüedad del dato visible: crece linealmente desde el último snapshot cargado
+    tb.segmentos.push({ a: tb.desde || 0, b: hasta, s: tb.snapshot });
+    tb.desde = hasta;
+  }
+
+  while (agenda.size) {
+    const ev = agenda.pop();
+    if (ev.t > T) break;
+    const t = ev.t;
+    if (ev.tipo === 'DISPARO') {
+      const { tb, programado } = ev.datos;
+      const corr = {
+        id: corridas.length, tb, tabla: tb.nombre, clase: tb.clase, programado, disparo: t,
+        inicio: null, fin: null, intentos: 0, esperaTotal: 0, costo: 0, estado: 'EN_CURSO', tEncolado: t, colaInt: []
+      };
+      corridas.push(corr);
+      if (tb.activa) { corr.estado = 'OMITIDA'; corr.fin = t; continue; }
+      tb.activa = corr;
+      encolar(corr, t);
+      intentarIniciar(t);
+    } else if (ev.tipo === 'FIN') {
+      const { corr, s, intento } = ev.datos;
+      slots[s] = null; ocupados--; registrarOcupados(t);
+      if (intento.ok) {
+        corr.fin = t; corr.estado = 'OK'; corr.tb.activa = null;
+        cerrarSegmento(corr.tb, t);
+        corr.tb.snapshot = intento.ini;   // la extracción toma la foto del dato al iniciar
+      } else if (corr.intentos <= P.maxReintentos) {
+        agenda.push(t + P.backoff, 'REINTENTO', { corr });
+      } else {
+        corr.fin = t; corr.estado = 'FALLIDA'; corr.tb.activa = null;
+      }
+      intentarIniciar(t);
+    } else if (ev.tipo === 'REINTENTO') {
+      encolar(ev.datos.corr, t);
+      intentarIniciar(t);
+    }
+  }
+  tablas.forEach(tb => cerrarSegmento(tb, T));
+  return resumir(P, { tablas, corridas, intentos, serieCola, serieOcupados, T });
+}
+
+// ---------- Métricas ----------
+function percentil(arr, p) {
+  if (!arr.length) return 0;
+  const a = [...arr].sort((x, y) => x - y);
+  const k = (a.length - 1) * p, f = Math.floor(k), c = Math.ceil(k);
+  return f === c ? a[f] : a[f] + (a[c] - a[f]) * (k - f);
+}
+const media = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
+
+function resumir(P, R) {
+  const { tablas, corridas, intentos, serieCola, serieOcupados, T } = R;
+  corridas.forEach(c => {
+    if (c.estado === 'OK') {
+      c.ciclo = c.fin - c.disparo;
+      c.espera = c.esperaTotal;
+      c.aTiempo = c.ciclo <= c.tb.cl.sla;
+    } else if (c.estado === 'EN_CURSO') {
+      c.aTiempo = (T - c.disparo) <= c.tb.cl.sla ? null : false; // sigue en curso al cierre
+    } else c.aTiempo = false;
+  });
+  const evaluables = corridas.filter(c => c.aTiempo !== null);
+
+  // Frescura: integral analítica de la antigüedad por tramo
+  tablas.forEach(tb => {
+    const objetivo = tb.cl.periodo + tb.cl.sla;
+    let integral = 0, fresco = 0, max = 0;
+    tb.segmentos.forEach(({ a, b, s }) => {
+      if (b <= a) return;
+      const ea = a - s, eb = b - s;
+      integral += (ea + eb) / 2 * (b - a);
+      max = Math.max(max, eb);
+      const lim = Math.min(b, s + objetivo);
+      if (lim > a) fresco += lim - a;
+    });
+    tb.frescuraMedia = integral / T;
+    tb.frescuraMax = max;
+    tb.pctFresco = fresco / T * 100;
+    tb.objetivo = objetivo;
+  });
+
+  const porClase = {};
+  P.clases.forEach(cl => {
+    const cs = corridas.filter(c => c.clase === cl.id);
+    const ok = cs.filter(c => c.estado === 'OK');
+    const ev = cs.filter(c => c.aTiempo !== null);
+    const tbs = tablas.filter(t => t.clase === cl.id);
+    porClase[cl.id] = {
+      nombre: cl.nombre,
+      disparos: cs.length,
+      completadas: ok.length,
+      fallidas: cs.filter(c => c.estado === 'FALLIDA').length,
+      omitidas: cs.filter(c => c.estado === 'OMITIDA').length,
+      pctATiempo: ev.length ? ev.filter(c => c.aTiempo).length / ev.length * 100 : 0,
+      esperaMedia: media(ok.map(c => c.espera)),
+      cicloMedio: media(ok.map(c => c.ciclo)),
+      cicloP95: percentil(ok.map(c => c.ciclo), 0.95),
+      frescuraMedia: media(tbs.map(t => t.frescuraMedia)),
+      frescuraMax: Math.max(0, ...tbs.map(t => t.frescuraMax)),
+      pctFresco: media(tbs.map(t => t.pctFresco)),
+      sla: cl.sla
+    };
+  });
+
+  // Integrales temporales
+  let areaCola = 0, maxCola = 0;
+  for (let i = 0; i < serieCola.length; i++) {
+    const a = serieCola[i], b = serieCola[i + 1];
+    const fin = b ? b.t : T;
+    areaCola += a.q * (Math.min(fin, T) - a.t);
+    maxCola = Math.max(maxCola, a.q);
+  }
+  let areaOcup = 0;
+  for (let i = 0; i < serieOcupados.length; i++) {
+    const a = serieOcupados[i], b = serieOcupados[i + 1];
+    areaOcup += a.b * (Math.min(b ? b.t : T, T) - a.t);
+  }
+  const ok = corridas.filter(c => c.estado === 'OK');
+  const costo = corridas.reduce((s, c) => s + c.costo, 0);
+
+  // Espera media por hora de disparo
+  const esperaHora = Array.from({ length: Math.ceil(T / 60) }, () => ({ suma: 0, n: 0 }));
+  ok.forEach(c => { const h = Math.floor(c.disparo / 60); if (esperaHora[h]) { esperaHora[h].suma += c.espera; esperaHora[h].n++; } });
+
+  return {
+    P, tablas, corridas, intentos, serieCola, serieOcupados, T, porClase,
+    global: {
+      disparos: corridas.length,
+      completadas: ok.length,
+      fallidas: corridas.filter(c => c.estado === 'FALLIDA').length,
+      omitidas: corridas.filter(c => c.estado === 'OMITIDA').length,
+      reintentos: intentos.filter(i => i.n > 1).length,
+      pctATiempo: evaluables.length ? evaluables.filter(c => c.aTiempo).length / evaluables.length * 100 : 0,
+      esperaMedia: media(ok.map(c => c.espera)),
+      esperaMax: Math.max(0, ...ok.map(c => c.espera)),
+      cicloP95: percentil(ok.map(c => c.ciclo), 0.95),
+      colaMedia: areaCola / T,
+      colaMax: maxCola,
+      utilizacion: areaOcup / (P.concurrencia * T) * 100,
+      costoDia: costo / (P.horizonte / 24),
+      costoMes: costo / (P.horizonte / 24) * 30
+    },
+    esperaHora: esperaHora.map(x => x.n ? x.suma / x.n : 0)
+  };
+}
+
+// ---------- Réplicas e intervalos de confianza (t de Student) ----------
+function tStudent975(df) {
+  const tabla = [0, 12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228,
+    2.201, 2.179, 2.160, 2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086,
+    2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042];
+  if (df <= 30) return tabla[Math.max(1, df)];
+  if (df <= 40) return 2.021; if (df <= 60) return 2.000; if (df <= 120) return 1.980;
+  return 1.960;
+}
+function ic95(vals) {
+  const n = vals.length, m = media(vals);
+  if (n < 2) return { media: m, lo: m, hi: m, n };
+  const sd = Math.sqrt(vals.reduce((s, x) => s + (x - m) ** 2, 0) / (n - 1));
+  const h = tStudent975(n - 1) * sd / Math.sqrt(n);
+  return { media: m, lo: m - h, hi: m + h, sd, n };
+}
+
+const METRICAS_REPLICA = {
+  pctATiempo: r => r.global.pctATiempo,
+  pctATiempoC: r => r.porClase.C ? r.porClase.C.pctATiempo : 0,
+  esperaMedia: r => r.global.esperaMedia,
+  esperaC: r => r.porClase.C ? r.porClase.C.esperaMedia : 0,
+  cicloP95: r => r.global.cicloP95,
+  frescuraC: r => r.porClase.C ? r.porClase.C.frescuraMedia : 0,
+  utilizacion: r => r.global.utilizacion,
+  costoDia: r => r.global.costoDia,
+  fallidas: r => r.global.fallidas,
+  omitidas: r => r.global.omitidas
+};
+
+function replicar(P, n, semillaInicial) {
+  const s0 = semillaInicial === undefined ? P.semilla : semillaInicial;
+  const valores = {};
+  Object.keys(METRICAS_REPLICA).forEach(k => valores[k] = []);
+  for (let i = 0; i < n; i++) {
+    const r = simular(P, s0 + i);
+    Object.entries(METRICAS_REPLICA).forEach(([k, f]) => valores[k].push(f(r)));
+  }
+  const out = {};
+  Object.entries(valores).forEach(([k, v]) => out[k] = ic95(v));
+  return out;
+}
+
+// ---------- Escenarios ----------
+const clonar = o => JSON.parse(JSON.stringify(o));
+const ESCENARIOS = [
+  { id: 'base', nombre: 'Base', desc: '12 tablas, 3 slots, todos los horarios disparan en el minuto 0, cola FIFO.',
+    aplicar: P => P },
+  { id: 'escalonado', nombre: 'Horarios escalonados', desc: 'Normales desfasadas 20 min y de baja prioridad 40 min: ya no coinciden con las críticas.',
+    aplicar: P => { P.clases[1].desfase = 20; P.clases[2].desfase = 40; return P; } },
+  { id: 'concurrencia', nombre: 'Más concurrencia', desc: 'Se amplía la capacidad de Glue de 3 a 5 jobs simultáneos.',
+    aplicar: P => { P.concurrencia = 5; return P; } },
+  { id: 'prioridad', nombre: 'Prioridad a críticas', desc: 'La cola atiende primero las tablas críticas (cola con prioridad).',
+    aplicar: P => { P.politica = 'PRIORIDAD'; return P; } },
+  { id: 'inestable', nombre: 'Fuente inestable', desc: 'La BD origen falla más: la probabilidad de fallo por intento sube de 5 % a 20 %.',
+    aplicar: P => { P.pFallo = 0.20; return P; } },
+  { id: 'crecimiento', nombre: 'Crecimiento ×2', desc: 'Se duplican las tablas (6 críticas, 12 normales, 6 de baja prioridad) con la misma capacidad.',
+    aplicar: P => { P.clases.forEach(c => c.n *= 2); return P; } },
+  { id: 'crec_conc', nombre: 'Crecimiento ×2 + 6 slots', desc: 'Ante el crecimiento se duplica también la capacidad: 6 jobs simultáneos.',
+    aplicar: P => { P.clases.forEach(c => c.n *= 2); P.concurrencia = 6; return P; } },
+  { id: 'propuesta', nombre: 'Crecimiento ×2 + escalonado + prioridad', desc: 'Ante el crecimiento NO se amplía la capacidad (3 slots): se escalonan horarios y se prioriza a las críticas.',
+    aplicar: P => { P.clases.forEach(c => c.n *= 2); P.clases[1].desfase = 20; P.clases[2].desfase = 40; P.politica = 'PRIORIDAD'; return P; } }
+];
+function parametrosEscenario(id, base) {
+  const e = ESCENARIOS.find(x => x.id === id);
+  return e.aplicar(clonar(base || parametrosBase()));
+}
+
+
+</script>
+<script>
+// ===================== INTERFAZ =====================
+const $ = s => document.querySelector(s);
+const COLOR = { C: '#2a78d6', N: '#eb6834', B: '#1baf7a' };
+const NOMBRE_CLASE = { C: 'Crítica', N: 'Normal', B: 'Baja' };
+const FALLO = '#d03b3b';
+const fmt = (x, d = 1) => (x === undefined || x === null || isNaN(x)) ? '–' : x.toLocaleString('es-PE', { minimumFractionDigits: d, maximumFractionDigits: d });
+const hhmm = m => { m = Math.max(0, m); const h = Math.floor(m / 60), mm = Math.floor(m % 60); return String(h).padStart(2, '0') + ':' + String(mm).padStart(2, '0'); };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+let RES = null;        // resultado de la última simulación
+let COMP = null;       // resultado de la comparación
+let tActual = 0, playing = false, lastFrame = 0;
+
+// ---------- Pestañas ----------
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => irA(b.dataset.p)));
+function irA(p) {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.p === p));
+  document.querySelectorAll('.panel').forEach(x => x.classList.toggle('on', x.id === 'p-' + p));
+  if (p === 'ejecucion') dibujarEjecucion();
+  if (p === 'resultados') dibujarResultados();
+  if (p === 'escenarios' && COMP) dibujarComparacion();
+  if (p === 'modelo') dibujarMapa();
+}
+
+// ---------- Formulario ----------
+const CAMPOS = ['concurrencia', 'politica', 'arrMin', 'arrMax', 'cv', 'jitterMax', 'pFallo', 'maxReintentos', 'backoff', 'dpu', 'precio', 'horizonte', 'semilla', 'replicas'];
+function cargarForm(P) {
+  $('#clasesBody').innerHTML = P.clases.map((c, i) => `
+    <tr><td><span class="dot" style="background:${COLOR[c.id]}"></span>${c.nombre}</td>
+    <td><input type="number" data-i="${i}" data-k="n" min="0" max="60" step="1" value="${c.n}"></td>
+    <td><input type="number" data-i="${i}" data-k="periodo" min="5" step="5" value="${c.periodo}"></td>
+    <td><input type="number" data-i="${i}" data-k="desfase" min="0" step="5" value="${c.desfase}"></td>
+    <td><input type="number" data-i="${i}" data-k="sla" min="1" step="1" value="${c.sla}"></td>
+    <td><input type="number" data-i="${i}" data-k="procMedia" min="0.1" step="0.5" value="${c.procMedia}"></td></tr>`).join('');
+  CAMPOS.forEach(k => { $('#' + k).value = k === 'pFallo' ? +(P[k] * 100).toFixed(2) : P[k]; });
+}
+function leerForm() {
+  const P = parametrosBase();
+  document.querySelectorAll('#clasesBody input').forEach(inp => {
+    P.clases[+inp.dataset.i][inp.dataset.k] = Math.max(0, parseFloat(inp.value) || 0);
+  });
+  P.clases.forEach(c => { c.n = Math.round(c.n); c.periodo = Math.max(1, c.periodo); c.procMedia = Math.max(0.05, c.procMedia); });
+  CAMPOS.forEach(k => {
+    const v = $('#' + k).value;
+    P[k] = k === 'politica' ? v : parseFloat(v);
+  });
+  P.pFallo = Math.min(0.95, Math.max(0, P.pFallo / 100));
+  P.concurrencia = Math.max(1, Math.round(P.concurrencia));
+  P.maxReintentos = Math.max(0, Math.round(P.maxReintentos));
+  if (P.arrMax < P.arrMin) P.arrMax = P.arrMin;
+  P.horizonte = Math.min(168, Math.max(1, P.horizonte));
+  P.replicas = Math.min(200, Math.max(2, Math.round(P.replicas)));
+  P.semilla = Math.round(P.semilla) || 1;
+  return P;
+}
+
+$('#preset').innerHTML = ESCENARIOS.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('');
+$('#preset').addEventListener('change', () => {
+  const id = $('#preset').value;
+  cargarForm(parametrosEscenario(id));
+  $('#presetDesc').textContent = ESCENARIOS.find(e => e.id === id).desc;
+  ejecutar();
+});
+$('#btnReset').addEventListener('click', () => { $('#preset').value = 'base'; $('#preset').dispatchEvent(new Event('change')); });
+$('#btnRun').addEventListener('click', () => ejecutar(true));
+document.getElementById('p-modelo').addEventListener('input', e => { if (e.target.closest('.grid-model fieldset')) dibujarMapa(); });
+
+function ejecutar(irResultados) {
+  const P = leerForm();
+  const t0 = performance.now();
+  RES = simular(P);
+  const ms = performance.now() - t0;
+  $('#status').innerHTML = `<b>✓</b> Simulación completada: ${RES.global.disparos} disparos, ${RES.intentos.length} intentos de job en ${P.horizonte} h simuladas (${fmt(ms, 0)} ms reales).`;
+  tActual = 0; $('#slider').max = RES.T; $('#slider').value = 0;
+  dibujarMapa(); chipsTablas();
+  if (irResultados) irA('resultados');
+}
+
+// ---------- Tooltip ----------
+const tip = $('#tip');
+function mostrarTip(html, e) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + w > innerWidth - 8) x = e.clientX - w - 14;
+  if (y + h > innerHeight - 8) y = e.clientY - h - 14;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+const ocultarTip = () => tip.style.display = 'none';
+document.addEventListener('mousemove', e => {
+  const el = e.target.closest && e.target.closest('[data-tip]');
+  if (el) mostrarTip(el.getAttribute('data-tip'), e);
+  else if (!e.target.closest || !e.target.closest('.hover-zone')) ocultarTip();
+});
+
+// ---------- Utilidades SVG ----------
+function escala(d0, d1, r0, r1) { const f = v => r0 + (v - d0) / ((d1 - d0) || 1) * (r1 - r0); return f; }
+function ticksNice(max, n = 5) {
+  if (max <= 0) return [0, 1];
+  const raw = max / n, p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * p).find(s => s >= raw);
+  const out = []; for (let v = 0; v <= max + step * 0.001; v += step) out.push(+v.toFixed(6));
+  if (out[out.length - 1] < max) out.push(+(out[out.length - 1] + step).toFixed(6));
+  return out;
+}
+function ancho(el) { return Math.max(320, el.clientWidth || el.parentElement.clientWidth || 600); }
+function ejeTiempoTicks(a, b) {
+  const span = b - a; const paso = span > 720 ? 120 : span > 240 ? 60 : span > 90 ? 30 : 15;
+  const out = []; for (let t = Math.ceil(a / paso) * paso; t <= b; t += paso) out.push(t); return out;
+}
+
+// ---------- Mapa del proceso ----------
+function dibujarMapa() {
+  const P = leerForm();
+  const el = $('#mapa'); const W = 760, H = 300;
+  const clases = P.clases;
+  const ys = [60, 150, 240];
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Mapa del proceso">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#85837d"/></marker></defs>
+  <text x="10" y="18" font-size="11" fill="#85837d" font-weight="600" letter-spacing=".06em">ORIGEN Y DISPARO</text>
+  <text x="298" y="18" font-size="11" fill="#85837d" font-weight="600" letter-spacing=".06em">COLA</text>
+  <text x="425" y="18" font-size="11" fill="#85837d" font-weight="600" letter-spacing=".06em">PROCESAMIENTO</text>
+  <text x="628" y="18" font-size="11" fill="#85837d" font-weight="600" letter-spacing=".06em">DESTINO</text>`;
+  clases.forEach((c, i) => {
+    const y = ys[i];
+    s += `<rect x="10" y="${y - 30}" width="200" height="60" rx="9" fill="#fff" stroke="${COLOR[c.id]}" stroke-width="1.5"/>
+      <rect x="10" y="${y - 30}" width="6" height="60" rx="3" fill="${COLOR[c.id]}"/>
+      <text x="26" y="${y - 9}" font-size="13" font-weight="650" fill="#0b0b0b">${c.n} ${c.n === 1 ? 'tabla' : 'tablas'} ${({ C: c.n === 1 ? 'crítica' : 'críticas', N: c.n === 1 ? 'normal' : 'normales', B: 'de baja prioridad' })[c.id]}</text>
+      <text x="26" y="${y + 9}" font-size="11.5" fill="#52514e">Cada ${c.periodo} min · desfase ${c.desfase} min</text>
+      <text x="26" y="${y + 24}" font-size="11.5" fill="#52514e">SLA ${c.sla} min · proc. ≈ ${c.procMedia} min</text>
+      <path d="M212 ${y} C 250 ${y}, 250 150, 284 150" fill="none" stroke="#85837d" stroke-width="1.4" marker-end="url(#ar)"/>`;
+  });
+  // cola
+  s += `<rect x="288" y="110" width="104" height="80" rx="9" fill="#f0efeb" stroke="#cfccc4"/>
+    <text x="340" y="138" text-anchor="middle" font-size="13" font-weight="650">Cola</text>
+    <text x="340" y="156" text-anchor="middle" font-size="11.5" fill="#52514e">${P.politica === 'FIFO' ? 'FIFO' : 'Prioridad'}</text>
+    <g>${[0, 1, 2, 3].map(k => `<rect x="${306 + k * 18}" y="166" width="14" height="12" rx="2" fill="#cfccc4"/>`).join('')}</g>
+    <path d="M394 150 L 418 150" stroke="#85837d" stroke-width="1.4" marker-end="url(#ar)"/>`;
+  // glue
+  const nS = Math.min(P.concurrencia, 8); const hS = Math.min(22, 150 / nS - 4);
+  const top = 150 - (nS * (hS + 4)) / 2;
+  s += `<rect x="420" y="${Math.min(top - 34, 92)}" width="180" height="${Math.max(nS * (hS + 4) + 48, 116)}" rx="9" fill="#fff" stroke="#10233f" stroke-width="1.5"/>
+    <text x="510" y="${Math.min(top - 34, 92) + 19}" text-anchor="middle" font-size="13" font-weight="650">AWS Glue</text>`;
+  for (let k = 0; k < nS; k++) s += `<rect x="436" y="${top + k * (hS + 4) + 6}" width="148" height="${hS}" rx="4" fill="#e6eefa" stroke="#9ec5f4"/>
+    <text x="510" y="${top + k * (hS + 4) + 6 + hS / 2 + 4}" text-anchor="middle" font-size="11" fill="#1c5cab">Slot ${k + 1}</text>`;
+  if (P.concurrencia > 8) s += `<text x="510" y="${top + nS * (hS + 4) + 18}" text-anchor="middle" font-size="11" fill="#52514e">… ${P.concurrencia} slots en total</text>`;
+  s += `<path d="M602 150 L 626 150" stroke="#85837d" stroke-width="1.4" marker-end="url(#ar)"/>
+    <rect x="628" y="112" width="124" height="76" rx="9" fill="#fff" stroke="#cfccc4"/>
+    <text x="690" y="140" text-anchor="middle" font-size="13" font-weight="650">Redshift / Athena</text>
+    <text x="690" y="158" text-anchor="middle" font-size="11.5" fill="#52514e">Dato actualizado</text>
+    <text x="690" y="174" text-anchor="middle" font-size="11.5" fill="#52514e">(frescura)</text>
+    <path d="M510 ${Math.min(top - 34, 92) + Math.max(nS * (hS + 4) + 48, 116)} C 510 290, 340 290, 340 194" fill="none" stroke="${FALLO}" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+    <text x="425" y="284" text-anchor="middle" font-size="11.5" fill="${FALLO}">Falla (p = ${fmt(P.pFallo * 100, 0)} %) → reintento (máx. ${P.maxReintentos})</text>
+  </svg>`;
+  el.innerHTML = s;
+}
+function chipsTablas() {
+  const P = leerForm(); const out = [];
+  P.clases.forEach(c => { for (let i = 0; i < c.n; i++) { const L = TABLAS_DEF[c.id]; const nm = i < L.length ? L[i] : L[i % L.length] + '_' + (Math.floor(i / L.length) + 1); out.push(`<span class="chip"><i style="background:${COLOR[c.id]}"></i>${nm}</span>`); } });
+  $('#chipsTablas').innerHTML = out.join('') || '<span class="empty">Sin tablas</span>';
+}
+
+// ---------- Ejecución ----------
+function leyendaClases(el, extra) {
+  el.innerHTML = ['C', 'N', 'B'].map(k => `<span><span class="dot" style="background:${COLOR[k]}"></span>${NOMBRE_CLASE[k]}</span>`).join('') +
+    (extra ? `<span><svg width="14" height="10" style="margin-right:6px"><rect width="14" height="10" rx="2" fill="url(#hatchL)" stroke="${FALLO}"/><defs><pattern id="hatchL" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" fill="#fbe9e9"/><line x1="0" y1="0" x2="0" y2="4" stroke="${FALLO}" stroke-width="1.5"/></pattern></defs></svg>Intento fallido</span>` : '');
+}
+function ventanaActual() {
+  const W = parseFloat($('#ventana').value); const T = RES.T;
+  if (W >= T) return [0, T];
+  let a = tActual - W / 2; a = Math.max(0, Math.min(T - W, a)); return [a, a + W];
+}
+function dibujarEjecucion() {
+  if (!RES) return;
+  leyendaClases($('#legGantt'), true);
+  dibujarGantt(); dibujarColaMini(); dibujarEstado();
+  $('#clock').textContent = hhmm(tActual); $('#slider').value = tActual;
+}
+function dibujarGantt() {
+  const el = $('#gantt'); const W = ancho(el); const C = RES.P.concurrencia;
+  const lane = C > 8 ? 20 : 30, padL = 58, padR = 12, padT = 6, H = padT + C * lane + 26;
+  const [a, b] = ventanaActual(); const x = escala(a, b, padL, W - padR);
+  let s = `<svg viewBox="0 0 ${W} ${H}" id="ganttSvg"><defs><pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="#fbe9e9"/><line x1="0" y1="0" x2="0" y2="5" stroke="${FALLO}" stroke-width="1.6"/></pattern></defs><g class="grid">`;
+  ejeTiempoTicks(a, b).forEach(t => s += `<line x1="${x(t)}" x2="${x(t)}" y1="${padT}" y2="${padT + C * lane}"/>`);
+  s += '</g>';
+  for (let k = 0; k < C; k++) s += `<text x="${padL - 8}" y="${padT + k * lane + lane / 2 + 4}" text-anchor="end" font-size="11" fill="#52514e">Slot ${k + 1}</text>
+    <line x1="${padL}" x2="${W - padR}" y1="${padT + (k + 1) * lane}" y2="${padT + (k + 1) * lane}" stroke="#ecebe6"/>`;
+  RES.intentos.forEach(it => {
+    if (it.fin < a || it.ini > b) return;
+    const x0 = x(Math.max(it.ini, a)), x1 = x(Math.min(it.fin, b));
+    const w = Math.max(1.5, x1 - x0 - 1.5);
+    const y = padT + it.slot * lane + 4, h = lane - 8;
+    const tipTxt = `<b>${esc(it.tabla)}</b> (${NOMBRE_CLASE[it.clase]})<br>Intento ${it.n} · ${it.ok ? 'exitoso' : '<span style=color:#ff8b8b>fallido</span>'}<br>${hhmm(it.ini)} → ${hhmm(it.fin)} (${fmt(it.fin - it.ini, 1)} min)`;
+    s += `<rect x="${x0}" y="${y}" width="${w}" height="${h}" rx="${Math.min(4, w / 2)}" fill="${it.ok ? COLOR[it.clase] : 'url(#hatch)'}" ${it.ok ? '' : `stroke="${FALLO}" stroke-width="1.2"`} data-tip="${esc(tipTxt)}"/>`;
+    if (w > 70) s += `<text x="${x0 + 6}" y="${y + h / 2 + 4}" font-size="10.5" fill="${it.ok ? '#fff' : FALLO}" pointer-events="none">${esc(it.tabla)}</text>`;
+  });
+  s += `<g class="ax">`;
+  ejeTiempoTicks(a, b).forEach(t => s += `<text x="${x(t)}" y="${H - 8}" text-anchor="middle">${hhmm(t)}</text>`);
+  s += `</g>`;
+  if (tActual >= a && tActual <= b) s += `<line x1="${x(tActual)}" x2="${x(tActual)}" y1="0" y2="${padT + C * lane + 4}" stroke="#10233f" stroke-width="2"/><circle cx="${x(tActual)}" cy="2" r="4" fill="#10233f"/>`;
+  s += `</svg>`;
+  el.innerHTML = s;
+  el.querySelector('svg').addEventListener('click', e => {
+    const r = e.currentTarget.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * W;
+    const inv = escala(padL, W - padR, a, b); tActual = Math.max(0, Math.min(RES.T, inv(px))); dibujarEjecucion();
+  });
+}
+function dibujarColaMini() {
+  const el = $('#colaMini'); const W = ancho(el), H = 110, padL = 58, padR = 12, padT = 8, padB = 22;
+  const [a, b] = ventanaActual(); const x = escala(a, b, padL, W - padR);
+  const maxQ = Math.max(2, ...RES.serieCola.map(p => p.q)); const yt = ticksNice(maxQ, 3); const y = escala(0, yt[yt.length - 1], H - padB, padT);
+  let d = `M${x(a)},${y(0)}`; let q = 0;
+  RES.serieCola.forEach(p => { if (p.t <= a) { q = p.q; } });
+  d = `M${x(a)},${y(q)}`;
+  RES.serieCola.forEach(p => { if (p.t > a && p.t <= b) { d += ` L${x(p.t)},${y(q)} L${x(p.t)},${y(p.q)}`; q = p.q; } });
+  d += ` L${x(b)},${y(q)}`;
+  let s = `<svg viewBox="0 0 ${W} ${H}"><g class="grid">${yt.map(v => `<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/>`).join('')}</g>
+    <g class="ax">${yt.map(v => `<text x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join('')}
+    ${ejeTiempoTicks(a, b).map(t => `<text x="${x(t)}" y="${H - 6}" text-anchor="middle">${hhmm(t)}</text>`).join('')}</g>
+    <path d="${d} L${x(b)},${y(0)} L${x(a)},${y(0)} Z" fill="#2a78d6" opacity=".14"/><path d="${d}" fill="none" stroke="#2a78d6" stroke-width="2"/>`;
+  if (tActual >= a && tActual <= b) s += `<line x1="${x(tActual)}" x2="${x(tActual)}" y1="${padT}" y2="${H - padB}" stroke="#10233f" stroke-width="2"/>`;
+  el.innerHTML = s + '</svg>';
+}
+function estadoEn(t) {
+  const corriendo = RES.intentos.filter(i => i.ini <= t && t < i.fin);
+  const enCola = [];
+  RES.corridas.forEach(c => { if (c.estado === 'OMITIDA') return; const q = c.colaInt.find(q => q.desde <= t && (q.hasta === null || t < q.hasta)); if (q) enCola.push({ c, desde: q.desde }); });
+  enCola.sort((a, b) => a.desde - b.desde);
+  const fres = RES.tablas.map(tb => {
+    const sg = tb.segmentos.find(g => g.a <= t && t <= g.b) || tb.segmentos[tb.segmentos.length - 1];
+    return { tb, edad: t - sg.s };
+  });
+  return { corriendo, enCola, fres };
+}
+function dibujarEstado() {
+  const { corriendo, enCola, fres } = estadoEn(tActual);
+  const P = RES.P;
+  let h = `<h3>Estado del sistema a las ${hhmm(tActual)}</h3>
+    <h3>En ejecución (${corriendo.length}/${P.concurrencia} slots)</h3><div class="chips">${corriendo.length ? corriendo.map(i => `<span class="chip"><i style="background:${i.ok ? COLOR[i.clase] : FALLO}"></i>${esc(i.tabla)}${i.n > 1 ? ' · reint.' : ''}</span>`).join('') : '<span class="empty">Todos los slots libres</span>'}</div>
+    <h3>En cola (${enCola.length})</h3><div class="chips">${enCola.length ? enCola.map(({ c, desde }) => `<span class="chip"><i style="background:${COLOR[c.clase]}"></i>${esc(c.tabla)} · ${fmt(tActual - desde, 0)} min</span>`).join('') : '<span class="empty">Cola vacía</span>'}</div>
+    <h3>Frescura del dato (antigüedad / objetivo)</h3>`;
+  fres.forEach(({ tb, edad }) => {
+    const r = edad / tb.objetivo; const ok = r <= 1;
+    h += `<div class="fresh-row" data-tip="${esc(`<b>${tb.nombre}</b><br>Antigüedad: ${fmt(edad, 0)} min<br>Objetivo: ≤ ${tb.objetivo} min (${tb.cl.periodo} + SLA ${tb.cl.sla})`)}">
+      <span class="nm"><span class="dot" style="background:${COLOR[tb.clase]}"></span>${esc(tb.nombre)}</span>
+      <div class="bar-bg"><div class="bar-fg" style="width:${Math.min(100, r * 100)}%;background:${ok ? COLOR[tb.clase] : FALLO}"></div></div>
+      <span class="val">${ok ? '' : '⚠ '}${fmt(edad, 0)} m</span></div>`;
+  });
+  $('#estado').innerHTML = h;
+}
+$('#slider').addEventListener('input', e => { tActual = +e.target.value; pausar(); dibujarEjecucion(); });
+$('#ventana').addEventListener('change', dibujarEjecucion);
+$('#btnPlay').addEventListener('click', () => playing ? pausar() : reproducir());
+function reproducir() {
+  if (!RES) return; if (tActual >= RES.T) tActual = 0;
+  playing = true; $('#btnPlay').textContent = '⏸ Pausar'; lastFrame = performance.now(); requestAnimationFrame(paso);
+}
+function pausar() { playing = false; $('#btnPlay').textContent = '▶ Reproducir'; }
+function paso(now) {
+  if (!playing) return;
+  const dt = (now - lastFrame) / 1000; lastFrame = now;
+  tActual = Math.min(RES.T, tActual + dt * parseFloat($('#speed').value) * 6);
+  dibujarEjecucion();
+  if (tActual >= RES.T) pausar(); else requestAnimationFrame(paso);
+}
+
+// ---------- Resultados ----------
+function dibujarResultados() {
+  if (!RES) return;
+  const g = RES.global, P = RES.P, pc = RES.porClase;
+  const kpi = (l, v, u, s) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}<small>${u || ''}</small></div><div class="s">${s || ''}</div></div>`;
+  $('#kpis').innerHTML =
+    kpi('Cargas dentro del SLA', fmt(g.pctATiempo, 1), '%', `Críticas: ${fmt(pc.C ? pc.C.pctATiempo : 0, 1)} %`) +
+    kpi('Espera media en cola', fmt(g.esperaMedia, 2), ' min', `Máxima: ${fmt(g.esperaMax, 1)} min`) +
+    kpi('Latencia de carga p95', fmt(g.cicloP95, 1), ' min', 'Disparo → dato cargado') +
+    kpi('Utilización de Glue', fmt(g.utilizacion, 1), '%', `${P.concurrencia} slots · cola media ${fmt(g.colaMedia, 2)}`) +
+    kpi('Costo diario', '$' + fmt(g.costoDia, 2), '', `≈ $${fmt(g.costoMes, 0)} al mes`) +
+    kpi('Incidencias', g.fallidas + g.omitidas, '', `${g.reintentos} reintentos · ${g.fallidas} fallidas · ${g.omitidas} omitidas`);
+  $('#resDesc').textContent = `Una réplica, semilla ${P.semilla}, ${P.horizonte} h simuladas, ${P.concurrencia} slots, cola ${P.politica === 'FIFO' ? 'FIFO' : 'con prioridad'}. Para la variabilidad entre réplicas, ver la pestaña 4.`;
+  const filas = P.clases.filter(c => c.n > 0).map(c => {
+    const r = pc[c.id];
+    return `<tr><td><span class="dot" style="background:${COLOR[c.id]}"></span>${c.nombre}</td><td class="r">${c.n}</td><td class="r">${r.disparos}</td><td class="r">${r.completadas}</td>
+    <td class="r">${stTxt(r.pctATiempo)}</td><td class="r">${r.sla}</td><td class="r">${fmt(r.esperaMedia, 2)}</td><td class="r">${fmt(r.cicloMedio, 1)}</td><td class="r">${fmt(r.cicloP95, 1)}</td>
+    <td class="r">${fmt(r.frescuraMedia, 1)}</td><td class="r">${fmt(r.frescuraMax, 1)}</td><td class="r">${fmt(r.pctFresco, 1)} %</td><td class="r">${r.fallidas}</td><td class="r">${r.omitidas}</td></tr>`;
+  }).join('');
+  $('#tblClases').innerHTML = `<table class="data"><thead><tr><th>Clase</th><th class="r">Tablas</th><th class="r">Disparos</th><th class="r">Completadas</th><th class="r">Dentro de SLA</th><th class="r">SLA (min)</th><th class="r">Espera media (min)</th><th class="r">Latencia media (min)</th><th class="r">Latencia p95 (min)</th><th class="r">Frescura media (min)</th><th class="r">Frescura máx. (min)</th><th class="r">Tiempo dentro del objetivo</th><th class="r">Fallidas</th><th class="r">Omitidas</th></tr></thead><tbody>${filas}</tbody></table>`;
+  chartEsperaHora(); chartCola(); chartFresh(); tablaCorridas();
+}
+function stTxt(p) {
+  const cls = p >= 99 ? 'ok' : p >= 90 ? 'warn' : 'bad'; const ic = p >= 99 ? '●' : p >= 90 ? '▲' : '■';
+  return `<span class="st ${cls}">${ic} ${fmt(p, 1)} %</span>`;
+}
+function chartEsperaHora() {
+  const el = $('#chEsperaHora'); const W = ancho(el), H = 240, padL = 44, padR = 10, padT = 10, padB = 34;
+  const v = RES.esperaHora; const n = v.length; const yt = ticksNice(Math.max(1, ...v), 4);
+  const y = escala(0, yt[yt.length - 1], H - padB, padT); const bw = (W - padL - padR) / n;
+  let s = `<svg viewBox="0 0 ${W} ${H}"><g class="grid">${yt.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/>`).join('')}</g>
+  <g class="ax">${yt.map(t => `<text x="${padL - 6}" y="${y(t) + 4}" text-anchor="end">${t}</text>`).join('')}
+  <text x="12" y="${padT + (H - padB - padT) / 2}" transform="rotate(-90 12 ${padT + (H - padB - padT) / 2})" text-anchor="middle">min</text></g>`;
+  v.forEach((val, i) => {
+    const x0 = padL + i * bw + 1, w = Math.max(2, bw - 2), y0 = y(val), h = Math.max(0, H - padB - y0);
+    s += `<rect x="${padL + i * bw}" y="${padT}" width="${bw}" height="${H - padB - padT}" fill="transparent" data-tip="<b>${hhmm(i * 60)}–${hhmm(i * 60 + 59)}</b><br>Espera media: ${fmt(val, 2)} min"/>`;
+    if (h > 0) s += `<path d="M${x0},${H - padB} V${y0 + Math.min(4, h)} Q${x0},${y0} ${x0 + Math.min(4, w / 2)},${y0} H${x0 + w - Math.min(4, w / 2)} Q${x0 + w},${y0} ${x0 + w},${y0 + Math.min(4, h)} V${H - padB} Z" fill="#2a78d6" pointer-events="none"/>`;
+    if (n <= 48 && (i % (n > 24 ? 4 : 2) === 0)) s += `<text x="${padL + i * bw + bw / 2}" y="${H - padB + 15}" text-anchor="middle" font-size="10.5" fill="#52514e">${String(i % 24).padStart(2, '0')}h</text>`;
+  });
+  el.innerHTML = s + `<line x1="${padL}" x2="${W - padR}" y1="${H - padB}" y2="${H - padB}" stroke="#cfccc4"/><text x="${(W + padL) / 2}" y="${H - 4}" text-anchor="middle" font-size="11" fill="#52514e">Hora del disparo</text></svg>`;
+}
+function chartCola() {
+  const el = $('#chCola'); const W = ancho(el), H = 240, padL = 44, padR = 10, padT = 10, padB = 34; const T = RES.T;
+  const x = escala(0, T, padL, W - padR); const yt = ticksNice(Math.max(2, ...RES.serieCola.map(p => p.q)), 4); const y = escala(0, yt[yt.length - 1], H - padB, padT);
+  let d = `M${x(0)},${y(0)}`, q = 0;
+  RES.serieCola.forEach(p => { d += ` L${x(p.t)},${y(q)} L${x(p.t)},${y(p.q)}`; q = p.q; }); d += ` L${x(T)},${y(q)}`;
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="hover-zone"><g class="grid">${yt.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/>`).join('')}</g>
+  <g class="ax">${yt.map(t => `<text x="${padL - 6}" y="${y(t) + 4}" text-anchor="end">${t}</text>`).join('')}
+  ${ejeTiempoTicks(0, T).map(t => `<text x="${x(t)}" y="${H - padB + 15}" text-anchor="middle">${hhmm(t)}</text>`).join('')}
+  <text x="12" y="${padT + (H - padB - padT) / 2}" transform="rotate(-90 12 ${padT + (H - padB - padT) / 2})" text-anchor="middle">jobs</text></g>
+  <path d="${d} L${x(T)},${y(0)} Z" fill="#2a78d6" opacity=".14"/><path d="${d}" fill="none" stroke="#2a78d6" stroke-width="2"/>
+  <line id="chColaX" y1="${padT}" y2="${H - padB}" stroke="#52514e" stroke-dasharray="3 3" visibility="hidden"/>
+  <line x1="${padL}" x2="${W - padR}" y1="${H - padB}" y2="${H - padB}" stroke="#cfccc4"/>
+  <rect x="${padL}" y="${padT}" width="${W - padL - padR}" height="${H - padB - padT}" fill="transparent" id="chColaHit"/></svg>`;
+  el.innerHTML = s;
+  const svg = el.querySelector('svg'), hit = el.querySelector('#chColaHit'), cx = el.querySelector('#chColaX');
+  hit.addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * W; const t = escala(padL, W - padR, 0, T)(px);
+    let qq = 0; for (const p of RES.serieCola) { if (p.t <= t) qq = p.q; else break; }
+    cx.setAttribute('x1', x(t)); cx.setAttribute('x2', x(t)); cx.setAttribute('visibility', 'visible');
+    mostrarTip(`<b>${hhmm(t)}</b><br>Jobs en cola: ${qq}`, e);
+  });
+  hit.addEventListener('mouseleave', () => { cx.setAttribute('visibility', 'hidden'); ocultarTip(); });
+}
+function chartFresh() {
+  const el = $('#chFresh'); const W = ancho(el), H = 260, padL = 44, padR = 10, padT = 10, padB = 34; const T = RES.T;
+  const crit = RES.tablas.filter(t => t.clase === 'C').slice(0, 3);
+  if (!crit.length) { el.innerHTML = '<p class="empty">No hay tablas críticas en este escenario.</p>'; $('#legFresh').innerHTML = ''; return; }
+  const tonos = ['#2a78d6', '#184f95', '#86b6ef'];
+  const dashes = ['', '6 3', '2 3'];
+  $('#legFresh').innerHTML = crit.map((t, i) => `<span><svg width="22" height="8" style="margin-right:6px"><line x1="0" x2="22" y1="4" y2="4" stroke="${tonos[i]}" stroke-width="2" stroke-dasharray="${dashes[i]}"/></svg>${esc(t.nombre)}</span>`).join('') +
+    `<span><svg width="22" height="8" style="margin-right:6px"><line x1="0" x2="22" y1="4" y2="4" stroke="${FALLO}" stroke-width="1.5" stroke-dasharray="4 4"/></svg>Objetivo (${crit[0].objetivo} min)</span>`;
+  const maxE = Math.max(crit[0].objetivo, ...crit.map(t => t.frescuraMax)); const yt = ticksNice(maxE, 4);
+  const x = escala(0, T, padL, W - padR), y = escala(0, yt[yt.length - 1], H - padB, padT);
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="hover-zone"><g class="grid">${yt.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/>`).join('')}</g>
+  <g class="ax">${yt.map(t => `<text x="${padL - 6}" y="${y(t) + 4}" text-anchor="end">${t}</text>`).join('')}
+  ${ejeTiempoTicks(0, T).map(t => `<text x="${x(t)}" y="${H - padB + 15}" text-anchor="middle">${hhmm(t)}</text>`).join('')}
+  <text x="12" y="${padT + (H - padB - padT) / 2}" transform="rotate(-90 12 ${padT + (H - padB - padT) / 2})" text-anchor="middle">min</text></g>
+  <line x1="${padL}" x2="${W - padR}" y1="${y(crit[0].objetivo)}" y2="${y(crit[0].objetivo)}" stroke="${FALLO}" stroke-width="1.5" stroke-dasharray="4 4"/>`;
+  crit.forEach((tb, i) => {
+    let d = '';
+    tb.segmentos.forEach(g => { if (g.b <= g.a) return; d += `M${x(g.a)},${y(g.a - g.s)} L${x(g.b)},${y(g.b - g.s)} `; });
+    s += `<path d="${d}" fill="none" stroke="${tonos[i]}" stroke-width="2" stroke-dasharray="${dashes[i]}"/>`;
+  });
+  s += `<line id="frX" y1="${padT}" y2="${H - padB}" stroke="#52514e" stroke-dasharray="3 3" visibility="hidden"/><line x1="${padL}" x2="${W - padR}" y1="${H - padB}" y2="${H - padB}" stroke="#cfccc4"/>
+  <rect x="${padL}" y="${padT}" width="${W - padL - padR}" height="${H - padB - padT}" fill="transparent" id="frHit"/></svg>`;
+  el.innerHTML = s;
+  const svg = el.querySelector('svg'), cx = el.querySelector('#frX');
+  el.querySelector('#frHit').addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect(); const t = escala(padL, W - padR, 0, T)((e.clientX - r.left) / r.width * W);
+    cx.setAttribute('x1', x(t)); cx.setAttribute('x2', x(t)); cx.setAttribute('visibility', 'visible');
+    mostrarTip(`<b>${hhmm(t)}</b><br>` + crit.map(tb => { const g = tb.segmentos.find(q => q.a <= t && t <= q.b); return `${esc(tb.nombre)}: ${g ? fmt(t - g.s, 0) : '–'} min`; }).join('<br>'), e);
+  });
+  el.querySelector('#frHit').addEventListener('mouseleave', () => { cx.setAttribute('visibility', 'hidden'); ocultarTip(); });
+}
+function tablaCorridas() {
+  const est = { OK: '<span class="st ok">● OK</span>', FALLIDA: '<span class="st bad">■ Fallida</span>', OMITIDA: '<span class="st warn">▲ Omitida</span>', EN_CURSO: '<span class="st warn">… En curso</span>' };
+  const rows = RES.corridas.slice().sort((a, b) => a.disparo - b.disparo).map((c, i) => `<tr><td class="r">${i + 1}</td><td><span class="dot" style="background:${COLOR[c.clase]}"></span>${esc(c.tabla)}</td><td>${NOMBRE_CLASE[c.clase]}</td>
+    <td class="r">${hhmm(c.disparo)}</td><td class="r">${c.inicio !== null ? hhmm(c.inicio) : '–'}</td><td class="r">${c.estado === 'OK' || c.estado === 'FALLIDA' ? hhmm(c.fin) : '–'}</td>
+    <td class="r">${c.estado === 'OK' ? fmt(c.espera, 2) : '–'}</td><td class="r">${c.estado === 'OK' ? fmt(c.ciclo, 2) : '–'}</td><td class="r">${c.intentos}</td><td class="r">$${fmt(c.costo, 3)}</td>
+    <td>${est[c.estado]}</td><td>${c.aTiempo === true ? '<span class="st ok">● Sí</span>' : c.aTiempo === false ? '<span class="st bad">■ No</span>' : '–'}</td></tr>`).join('');
+  $('#tblCorridas').innerHTML = `<table class="data"><thead><tr><th class="r">#</th><th>Tabla</th><th>Clase</th><th class="r">Disparo</th><th class="r">Inicio</th><th class="r">Fin</th><th class="r">Espera (min)</th><th class="r">Latencia (min)</th><th class="r">Intentos</th><th class="r">Costo</th><th>Estado</th><th>Dentro de SLA</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function descargar(nombre, texto) {
+  const blob = new Blob(['﻿' + texto], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nombre; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$('#btnCSV').addEventListener('click', () => {
+  if (!RES) return;
+  const head = 'corrida,tabla,clase,disparo_min,inicio_min,fin_min,espera_min,latencia_min,intentos,costo_usd,estado,dentro_sla';
+  const rows = RES.corridas.map(c => [c.id + 1, c.tabla, NOMBRE_CLASE[c.clase], c.disparo.toFixed(3), c.inicio === null ? '' : c.inicio.toFixed(3), c.fin === null ? '' : c.fin.toFixed(3),
+    c.estado === 'OK' ? c.espera.toFixed(3) : '', c.estado === 'OK' ? c.ciclo.toFixed(3) : '', c.intentos, c.costo.toFixed(4), c.estado, c.aTiempo === null ? '' : (c.aTiempo ? 'SI' : 'NO')].join(','));
+  descargar('corridas_pipeline.csv', [head, ...rows].join('\n'));
+});
+
+// ---------- Comparación de escenarios ----------
+const MET_COMP = [
+  { k: 'pctATiempo', l: 'Dentro de SLA (todas)', u: '%', d: 1 },
+  { k: 'pctATiempoC', l: 'Dentro de SLA (críticas)', u: '%', d: 1 },
+  { k: 'esperaC', l: 'Espera críticas', u: 'min', d: 2 },
+  { k: 'cicloP95', l: 'Latencia p95', u: 'min', d: 1 },
+  { k: 'utilizacion', l: 'Utilización', u: '%', d: 1 },
+  { k: 'costoDia', l: 'Costo diario', u: 'USD', d: 2 },
+  { k: 'fallidas', l: 'Cargas fallidas', u: '/día', d: 2 }
+];
+$('#btnComp').addEventListener('click', async () => {
+  const F = leerForm(); const n = F.replicas;
+  $('#prog').style.display = 'block'; $('#btnComp').disabled = true;
+  const out = [];
+  for (let i = 0; i < ESCENARIOS.length; i++) {
+    const e = ESCENARIOS[i];
+    const base = parametrosBase();
+    ['arrMin', 'arrMax', 'cv', 'jitterMax', 'pFallo', 'maxReintentos', 'backoff', 'dpu', 'precio', 'horizonte', 'semilla', 'replicas'].forEach(k => base[k] = F[k]);
+    const P = e.aplicar(clonar(base));
+    out.push({ e, P, r: replicar(P, n, F.semilla) });
+    $('#prog div').style.width = ((i + 1) / ESCENARIOS.length * 100) + '%';
+    await new Promise(r => setTimeout(r, 15));
+  }
+  COMP = { out, n, semilla: F.semilla, horizonte: F.horizonte };
+  $('#btnComp').disabled = false; $('#btnCSVComp').disabled = false;
+  setTimeout(() => $('#prog').style.display = 'none', 400);
+  dibujarComparacion();
+});
+function dibujarComparacion() {
+  if (!COMP) return;
+  $('#nRep').textContent = COMP.n; $('#sRep').textContent = COMP.semilla;
+  const rows = COMP.out.map(({ e, r }, i) => `<tr class="${e.id === 'base' ? 'hl' : ''}"><td>${i + 1}</td><td><b>${esc(e.nombre)}</b><div class="ci" style="white-space:normal;max-width:300px">${esc(e.desc)}</div></td>${MET_COMP.map(m =>
+    `<td class="r">${fmt(r[m.k].media, m.d)}<div class="ci">[${fmt(Math.max(0, r[m.k].lo), m.d)}; ${fmt(m.u === '%' ? Math.min(100, r[m.k].hi) : r[m.k].hi, m.d)}]</div></td>`).join('')}<td><button class="btn sec sm" data-ver="${e.id}">Ver detalle</button></td></tr>`).join('');
+  $('#compOut').innerHTML = `
+  <div class="card" style="margin-bottom:18px"><h2>Tabla comparativa</h2><p class="desc">Media de ${COMP.n} réplicas de ${COMP.horizonte} h; entre corchetes, el IC 95 %. La fila resaltada es el caso base.</p>
+  <div class="tbl-wrap"><table class="data"><thead><tr><th>#</th><th>Escenario</th>${MET_COMP.map(m => `<th class="r">${m.l}<br><span class="ci">${m.u}</span></th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table></div></div>
+  <div class="two"><div class="card"><h2>Cargas críticas dentro del SLA</h2><p class="desc">Media e IC 95 % (%). Mientras más alto, mejor.</p><div class="chart" id="chCompSLA"></div></div>
+  <div class="card"><h2>Espera media de las tablas críticas</h2><p class="desc">Media e IC 95 % (min). Mientras más bajo, mejor.</p><div class="chart" id="chCompEsp"></div></div></div>`;
+  barrasIC($('#chCompSLA'), 'pctATiempoC', '%', 1);
+  barrasIC($('#chCompEsp'), 'esperaC', 'min', 2);
+  document.querySelectorAll('[data-ver]').forEach(b => b.addEventListener('click', () => {
+    const it = COMP.out.find(o => o.e.id === b.dataset.ver);
+    $('#preset').value = it.e.id; $('#presetDesc').textContent = it.e.desc; cargarForm(it.P); ejecutar(true);
+  }));
+}
+function barrasIC(el, k, u, d) {
+  const W = ancho(el), padL = 230, padR = 60, rowH = 30, padT = 6, H = padT + COMP.out.length * rowH + 26;
+  const max = u === '%' ? 100 : Math.max(...COMP.out.map(o => o.r[k].hi), 0.01); const xt = ticksNice(max, 4);
+  const x = escala(0, xt[xt.length - 1], padL, W - padR);
+  let s = `<svg viewBox="0 0 ${W} ${H}"><g class="grid">${xt.map(t => `<line x1="${x(t)}" x2="${x(t)}" y1="${padT}" y2="${H - 22}"/>`).join('')}</g>
+  <g class="ax">${xt.map(t => `<text x="${x(t)}" y="${H - 6}" text-anchor="middle">${t}</text>`).join('')}</g>`;
+  COMP.out.forEach(({ e, r }, i) => {
+    const y = padT + i * rowH, m0 = r[k], m = { media: m0.media, lo: Math.max(0, m0.lo), hi: u === '%' ? Math.min(100, m0.hi) : m0.hi }, w = Math.max(0, x(m.media) - padL);
+    const tipTxt = `<b>${esc(e.nombre)}</b><br>Media: ${fmt(m.media, d)} ${u}<br>IC 95 %: [${fmt(m.lo, d)}; ${fmt(m.hi, d)}]`;
+    s += `<text x="${padL - 10}" y="${y + rowH / 2 + 4}" text-anchor="end" font-size="11.5" fill="#0b0b0b">${esc(e.nombre)}</text>
+    <rect x="0" y="${y}" width="${W}" height="${rowH}" fill="transparent" data-tip="${esc(tipTxt)}"/>
+    <path d="M${padL},${y + 6} H${padL + Math.max(0, w - 4)} Q${padL + w},${y + 6} ${padL + w},${y + 10} V${y + rowH - 10} Q${padL + w},${y + rowH - 6} ${padL + Math.max(0, w - 4)},${y + rowH - 6} H${padL} Z" fill="${e.id === 'base' ? '#86b6ef' : '#2a78d6'}" pointer-events="none"/>
+    <line x1="${x(Math.max(0, m.lo))}" x2="${x(m.hi)}" y1="${y + rowH / 2}" y2="${y + rowH / 2}" stroke="#0b0b0b" stroke-width="1.3" pointer-events="none"/>
+    <line x1="${x(Math.max(0, m.lo))}" x2="${x(Math.max(0, m.lo))}" y1="${y + rowH / 2 - 4}" y2="${y + rowH / 2 + 4}" stroke="#0b0b0b" stroke-width="1.3" pointer-events="none"/>
+    <line x1="${x(m.hi)}" x2="${x(m.hi)}" y1="${y + rowH / 2 - 4}" y2="${y + rowH / 2 + 4}" stroke="#0b0b0b" stroke-width="1.3" pointer-events="none"/>
+    <text x="${x(m.hi) + 6}" y="${y + rowH / 2 + 4}" font-size="11" fill="#52514e" pointer-events="none">${fmt(m.media, d)}</text>`;
+  });
+  el.innerHTML = s + `<line x1="${padL}" x2="${padL}" y1="${padT}" y2="${H - 22}" stroke="#cfccc4"/></svg>`;
+}
+$('#btnCSVComp').addEventListener('click', () => {
+  if (!COMP) return;
+  const head = ['escenario', ...MET_COMP.flatMap(m => [m.k + '_media', m.k + '_ic_inf', m.k + '_ic_sup'])].join(',');
+  const rows = COMP.out.map(({ e, r }) => ['"' + e.nombre + '"', ...MET_COMP.flatMap(m => [r[m.k].media, r[m.k].lo, r[m.k].hi].map(v => v.toFixed(4)))].join(','));
+  descargar('comparacion_escenarios.csv', [head, ...rows].join('\n'));
+});
+
+// ---------- Redibujar al cambiar tamaño ----------
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => {
+  const p = document.querySelector('.tab.on').dataset.p; if (p === 'ejecucion') dibujarEjecucion(); if (p === 'resultados') dibujarResultados(); if (p === 'escenarios') dibujarComparacion();
+}, 150); });
+
+// ---------- Inicio ----------
+cargarForm(parametrosBase());
+$('#presetDesc').textContent = ESCENARIOS[0].desc;
+ejecutar(false);
+
+</script>
+</body>
+</html>
